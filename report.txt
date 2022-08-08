@@ -1,0 +1,60 @@
+# Chương trình mô phỏng thang máy
+
+# Thư viện cần cài đặt
+(-) lvlc-dev(lvlc.h): sudo apt-get install libvlc-dev
+(-) gtk3+: sudo apt-get install libgtk-3-dev
+
+# Hướng dẫn compile:
+(-) Cách 1: make
+(-) Cách 2: Chạy lần lượt
+    (+) gcc `pkg-config --cflags gtk+-3.0` -o 1 division1.c `pkg-config --libs gtk+-3.0` -w
+    (+) gcc `pkg-config --cflags gtk+-3.0` -o 25 division25.c `pkg-config --libs gtk+-3.0`  -w
+    (+) gcc -o PSdevise PSdevise.c -lvlc
+
+# Hướng dẫn chạy: Mở lần lượt các file đã compiled
+    (+) ./PSdevise
+    (+) ./1
+    (+) ./25
+    (+) Vị trí ban đầu luôn là tầng 1. Di chuyển đến tầng mong muốn bằng 2 cách:
+        (*) Từ giao diện Elevator, chọn số tầng mong muốn
+        (*) Từ giao diện Division{2-5} tương ứng số tầng muốn lên, ấn play
+    (+) Theo dõi trạng thái của thang máy thông qua Terminal của PSdevice
+
+# Cấu trúc project (4 file chính + 1 stylesheet + 1 folder):
+(-) division1.c: giao diện thang máy ở tầng 1
+(-) division25.c: giao diện thang máy từ tầng 2 đến tầng 5
+(-) PSdevise.c: chương trình chính lưu yêu cầu di chuyển giữa các tầng và in ra trạng thái thang máy (độ cao, đóng mở)
+(-) style.css: stylesheet chứa config style cho button, label, trạng thái thang máy,...
+(-) icon/: folder chứa ảnh sử dụng cho giao diện gtk
+    (+) {1-5}.png: nút số tầng của thang máy sau khi được click
+    (+) {T1-T5}.png: nút số tầng của thang máy trước khi click
+    (+) thangmay.png: ảnh thang máy
+    (+) {play/pause}.png: nút di chuyển/ngừng thang máy
+    (+) {blue/red}.jpg: trạng thái mở/đóng của thang máy
+
+# Lý thuyết
+(-) Sử dụng shared memory để chia sẻ trạng thái thang máy giữa 3 file chính, thông qua biến `shm`
+    (+) shm[0]: Vị trí thang máy hiện tại
+    (+) shm[1]: Vị trí tầng muốn đến / yêu cầu gửi đồ khi đang ở tầng 1 (được lưu vào queue)
+    (+) shm[2]: Vị trí tầng muốn đến / yêu cầu gửi đồ khi đang ở tầng 2-5
+    (+) shm[3]: Vị trí tầng muốn đến khi đang ở tầng 1 (k lưu vào queue)
+(-) Multiprocessing với kĩ thuật folk, để quản lý trạng thái giao diện từ tầng 2-5
+    
+
+# Giải thích các hàm trong các file chính
+(-) division1.c
+    (+) nofication(): hàm này được gọi mỗi 0.5s thông qua hàm activate, để cập nhật màu đèn thang máy (button1) và vị trí tầng hiện tại
+    (+) on_clicked_division{2-5}(): các hàm callback được gọi ở hàm activate để cập nhật trạng thái shared memory, khi nhận được tín hiệu click vào nút tương ứng của thang máy trên giao diện
+    (+) activate(): hàm khởi tạo giao diện (border, grid, button, style...) và kích hoạt các chức năng tương ứng khi click button, được gọi từ app chính trong main
+    (+) main(): tạo app giao diện, kích hoạt hàm activate
+(-) division25.c: tương tự division1.c
+    (+) nofication(): được gọi mỗi 0.5s, để update màu đèn thang máy và chuyển nút stop thành play khi thang máy chạy xong
+    (+) on_clicked_button(): đổi icon play thành stop tương ứng ở button được click, và lưu thông tin button đó (vị trí tầng muốn đến) vào shared memory (shm[2])
+    (+) activate(): khởi tạo và hiển thị giao diện các tầng từ 2-5, gọi đến on_click_button khi có sự kiện click xảy ra, và gọi hàm nofication để update giao diện mỗi 0.5s
+    (+) main(): mỗi tầng từ 2-5 tương ứng với một child process chứa giao diện được khởi tạo và chạy đồng thời, dùng chung shared memory
+(-) PSdevise.c: chương trình chính, không chứa giao diện
+    (+) openthedoor()/closethedoor(): phát nhạc mỗi khi cửa mở và đóng, nhờ thư viện vlc
+    (+) putQueue()/getQueue(): đưa vào/lấy ra các yêu cầu di chuyển, gửi đồ từ hàng đợi
+    (+) updateRequest(): gọi đến hàm putQueue để đưa thông tin shared memory vào hàng đợi
+    (+) main: chạy vĩnh viễn, liên tục đưa thông tin shared memory vào hàng đợi thông qua hàm updateRequest, lần lượt lấy từng request của hàng đợi ra để xử lý bên trong hàm mainProcess
+    (+) mainProcess: đối với mỗi lần di chuyển, in ra trạng thái thang máy (đang đi lên, đi xuống, dừng, đóng mở, độ cao hiện tại), độ cao = (số tầng - 1) * 3 mét, mỗi giây đi được 0.5m
